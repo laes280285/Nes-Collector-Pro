@@ -1,0 +1,7 @@
+{
+  "name": "NES Collector Pro",
+  "description": "A comprehensive NES game collection tracker with AI-powered game data fetching and custom view options.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
