@@ -1,6 +1,6 @@
 {
-  "name": "NES Collector Pro",
-  "description": "A comprehensive NES game collection tracker with AI-powered game data fetching and custom view options.",
+  "name": "Nintendo Collector Pro",
+  "description": "A comprehensive Nintendo game collection tracker with AI-powered game data fetching and custom branding.",
   "requestFramePermissions": [
     "camera"
   ]
