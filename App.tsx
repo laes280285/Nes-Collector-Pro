@@ -327,7 +327,8 @@ const App: React.FC = () => {
               <section key={c.id}>
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-xl font-black pro-font flex items-center gap-2">
-                    <img src={c.logo} className="h-6 w-auto object-contain" /> {!noTextConsoles.includes(c.id) && c.name}
+                    <img src={c.logo} className="block h-6 w-auto object-contain" style={{ minWidth: '24px' }} /> 
+                    {!noTextConsoles.includes(c.id) && c.name}
                   </h2>
                   <button onClick={() => { setActiveConsole(c.id); setActiveTab('collection'); }} className="text-[11px] font-black uppercase text-gray-400">VER TODO</button>
                 </div>
@@ -617,7 +618,7 @@ const App: React.FC = () => {
                       }}
                       className={`py-2 rounded-xl border-2 text-[10px] font-black transition-all flex flex-col items-center gap-1 pro-font ${newGameForm.consoleId === c.id ? 'bg-gray-900 text-white border-gray-900 shadow-inner' : 'border-gray-100 text-gray-400 hover:bg-gray-50'}`}
                     >
-                      <img src={c.logo} className={`h-4 w-auto object-contain ${newGameForm.consoleId === c.id ? 'brightness-0 invert' : 'grayscale'}`} />
+                      <img src={c.logo} className={`block h-4 w-auto object-contain ${newGameForm.consoleId === c.id ? 'brightness-0 invert' : 'grayscale'}`} style={{ minWidth: '16px' }} />
                       {!noTextConsoles.includes(c.id) && c.name}
                     </button>
                   ))}

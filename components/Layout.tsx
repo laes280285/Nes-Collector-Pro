@@ -44,11 +44,16 @@ export const Layout: React.FC<LayoutProps> = ({
           style={{ backgroundColor: (activeConsole === 'all' || activeTab === 'home' || activeTab === 'admin' || activeTab === 'settings') ? '#1f2937' : themeColor }}
         >
           <div className="flex items-center justify-between max-w-2xl mx-auto">
-            <div className="flex items-center h-10">
+            <div className="flex items-center h-8">
               <img 
-                src="logo.png" 
+                src="nintendo_header.png" 
                 alt="Nintendo Collector" 
-                className="h-full w-auto object-contain brightness-110 drop-shadow-md"
+                className="h-6 w-auto block object-contain brightness-0 invert opacity-90"
+                style={{ minWidth: '80px' }}
+                onError={(e) => {
+                  // Fallback simple si el archivo no existe aún
+                  (e.target as HTMLImageElement).src = "https://upload.wikimedia.org/wikipedia/commons/0/0d/Nintendo.svg";
+                }}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -84,7 +89,12 @@ export const Layout: React.FC<LayoutProps> = ({
                   backgroundColor: activeConsole === c.id ? `${c.color}20` : undefined
                 }}
               >
-                <img src={c.logo} alt={c.name} className={`${noTextConsoles.includes(c.id) ? 'h-5' : 'h-3'} w-auto object-contain`} />
+                <img 
+                  src={c.logo} 
+                  alt={c.name} 
+                  className={`block object-contain ${noTextConsoles.includes(c.id) ? 'h-4 w-auto' : 'h-3 w-auto'}`}
+                  style={{ minWidth: '20px', maxWidth: '60px' }}
+                />
                 {!noTextConsoles.includes(c.id) && c.name}
               </button>
             ))}

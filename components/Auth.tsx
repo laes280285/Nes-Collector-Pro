@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User, UserRole, AccountStatus } from '../types';
 import { Mail, Lock, User as UserIcon, Check, ShieldAlert, CheckCircle2, XCircle, ArrowRight, Award } from 'lucide-react';
@@ -153,7 +154,8 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, users, setUsers }) => {
              </div>
              <button 
                onClick={() => {
-                 setUsers(prev => prev.map(u => u.email === email ? { ...u, verified: true } : u));
+                 /* Fix: Use the users array directly instead of a functional update callback, matching the component's prop types. */
+                 setUsers(users.map(u => u.email === email ? { ...u, verified: true } : u));
                  setMode('success');
                }} 
                className="w-full py-4 bg-blue-600 text-white rounded-[24px] font-black uppercase pro-font shadow-lg shadow-blue-100 flex items-center justify-center gap-2 group transition-all"
