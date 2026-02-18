@@ -34,27 +34,24 @@ export const Layout: React.FC<LayoutProps> = ({
     return CONSOLES.filter(c => consoleIdsWithGames.has(c.id));
   }, [hideEmpty, collection]);
 
-  const noTextConsoles: ConsoleId[] = ['nes', 'snes', 'n64', 'gamecube', 'wii', 'wiiu', 'switch', 'switch2'];
-
   return (
     <div className="flex flex-col min-h-screen pb-20">
       <header className="sticky top-0 z-50 shadow-md">
         <div 
-          className="p-4 transition-colors duration-300" 
+          className="p-3 transition-colors duration-300" 
           style={{ backgroundColor: (activeConsole === 'all' || activeTab === 'home' || activeTab === 'admin' || activeTab === 'settings') ? '#1f2937' : themeColor }}
         >
           <div className="flex items-center justify-between max-w-2xl mx-auto">
-            <div className="flex items-center h-8">
+            <div className="flex items-center gap-3 h-10">
               <img 
-                src="nintendo_header.png" 
-                alt="Nintendo Collector" 
-                className="h-6 w-auto block object-contain brightness-0 invert opacity-90"
-                style={{ minWidth: '80px' }}
+                src="https://lh3.googleusercontent.com/d/1RFXYtZ9Pls3jJg4pGo80svjKfTayESwl" 
+                alt="Logo" 
+                className="h-full w-auto block object-contain drop-shadow-md brightness-110 transform origin-left"
                 onError={(e) => {
-                  // Fallback simple si el archivo no existe aún
                   (e.target as HTMLImageElement).src = "https://upload.wikimedia.org/wikipedia/commons/0/0d/Nintendo.svg";
                 }}
               />
+              <span className="pro-font text-white text-lg sm:text-2xl tracking-[0.1em] mt-1 ml-1">NINTENDO COLLECTOR</span>
             </div>
             <div className="flex items-center gap-2">
                {currentUser?.role === 'standard' ? (
@@ -71,31 +68,30 @@ export const Layout: React.FC<LayoutProps> = ({
         </div>
 
         {activeTab === 'collection' && (
-          <div className="bg-white border-b border-gray-200 overflow-x-auto no-scrollbar flex gap-1 p-2 animate-fadeIn">
+          <div className="bg-white border-b border-gray-200 overflow-x-auto no-scrollbar flex gap-2 p-2 animate-fadeIn scroll-smooth">
             <button
               onClick={() => setActiveConsole('all')}
-              className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs font-black transition-all border-2 ${activeConsole === 'all' ? 'border-gray-800 bg-gray-800 text-white shadow-inner' : 'border-gray-100 text-gray-400 hover:bg-gray-50'}`}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-[10px] text-[10px] font-black transition-all border-2 flex items-center justify-center min-w-[60px] h-9 ${activeConsole === 'all' ? 'border-gray-800 bg-gray-800 text-white shadow-md' : 'border-gray-100 text-gray-400 hover:bg-gray-50'}`}
             >
-              🏠 TODO
+              🌎 TODOS
             </button>
             {visibleConsoles.map(c => (
               <button
                 key={c.id}
                 onClick={() => setActiveConsole(c.id)}
-                className={`flex-shrink-0 px-4 py-2 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2 ${activeConsole === c.id ? 'bg-opacity-10 shadow-sm' : 'border-gray-100 text-gray-400 hover:bg-gray-50'}`}
+                className={`flex-shrink-0 px-4 py-1.5 rounded-[12px] transition-all border-2 flex items-center justify-center min-w-[75px] h-10 ${activeConsole === c.id ? 'bg-opacity-10 shadow-sm scale-105 border-gray-900' : 'border-gray-100 opacity-70 grayscale hover:opacity-100 hover:grayscale-0'}`}
                 style={{ 
                   borderColor: activeConsole === c.id ? c.color : '#f3f4f6',
-                  color: activeConsole === c.id ? c.color : undefined,
-                  backgroundColor: activeConsole === c.id ? `${c.color}20` : undefined
+                  backgroundColor: activeConsole === c.id ? `${c.color}15` : 'transparent'
                 }}
               >
                 <img 
                   src={c.logo} 
                   alt={c.name} 
-                  className={`block object-contain ${noTextConsoles.includes(c.id) ? 'h-4 w-auto' : 'h-3 w-auto'}`}
-                  style={{ minWidth: '20px', maxWidth: '60px' }}
+                  className="block object-contain w-auto"
+                  style={{ height: '28px', maxWidth: '100%' }}
+                  loading="eager"
                 />
-                {!noTextConsoles.includes(c.id) && c.name}
               </button>
             ))}
           </div>

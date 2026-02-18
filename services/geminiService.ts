@@ -1,19 +1,23 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
+// Removed googleSearch tool to comply with guideline:
+// "The output response.text may not be in JSON format; do not attempt to parse it as JSON."
+// when using grounding tools. Since responseSchema is used, disabling tools ensures valid JSON.
 export async function fetchGameMetadata(gameName: string, consoleName: string) {
   try {
-    // Always initialize the GoogleGenAI client right before use to ensure it has the most up-to-date configuration.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `STRICT SEARCH: Find metadata and cover art ONLY for the original ${consoleName} version of the game named: "${gameName}". 
+      contents: `Eres una enciclopedia de Nintendo. Encuentra datos precisos del juego "${gameName}" para la consola "${consoleName}". 
+      Busca portadas oficiales (Box Art) de alta resolución.
       
-      CRITICAL RULES:
-      1. DO NOT return results for other platforms (e.g., no versions for modern consoles, mobile, or PC unless it is specifically the ${consoleName} release).
-      2. If the game doesn't exist for ${consoleName}, return null or zeroed fields, but DO NOT provide data for a different platform.
-      3. The box art URLs (coverOptions) MUST be images of the ${consoleName} physical box or cartridge.
-      4. Provide accurate details for ${consoleName} release year and developer.
-      5. Include an estimated current market price in USD based on recent PriceCharting trends for a "Loose" copy of the ${consoleName} version.`,
+      REGLAS:
+      1. El precio debe ser una estimación realista en USD para un cartucho suelto/usado.
+      2. Portadas: URLs directas de imágenes (.jpg/.png) de sitios como Wikipedia, MobyGames o IGDB.
+      3. Sé rápido y preciso.
+      4. Asegúrate de incluir el género predominante (ej: Acción, RPG, Plataformas).`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -23,14 +27,10 @@ export async function fetchGameMetadata(gameName: string, consoleName: string) {
             developer: { type: Type.STRING },
             year: { type: Type.STRING },
             genre: { type: Type.STRING },
-            estimatedPrice: { 
-              type: Type.NUMBER,
-              description: "The estimated current market price in USD for this specific platform version."
-            },
+            estimatedPrice: { type: Type.NUMBER },
             coverOptions: { 
               type: Type.ARRAY, 
-              items: { type: Type.STRING },
-              description: "An array of exactly 4 direct URLs to box art images for this specific console."
+              items: { type: Type.STRING }
             }
           },
           required: ["name", "developer", "year", "genre", "estimatedPrice", "coverOptions"]
@@ -38,9 +38,19 @@ export async function fetchGameMetadata(gameName: string, consoleName: string) {
       }
     });
 
-    return JSON.parse(response.text);
+    // response.text is a property, not a method.
+    const data = JSON.parse(response.text || "{}");
+    
+    // Limpieza de URLs
+    if (data.coverOptions) {
+      data.coverOptions = data.coverOptions.filter((u: string) => 
+        u.startsWith('http') && (u.includes('jpg') || u.includes('png') || u.includes('webp'))
+      ).slice(0, 4);
+    }
+    
+    return data;
   } catch (error) {
-    console.error("Error fetching game metadata:", error);
+    console.error("Error en búsqueda IA:", error);
     return null;
   }
 }

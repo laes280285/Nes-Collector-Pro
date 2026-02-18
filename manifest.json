@@ -1,23 +1,40 @@
+
 {
   "name": "Nintendo Collector Pro",
   "short_name": "Ninty Pro",
-  "description": "Tu colección de Nintendo siempre contigo.",
+  "description": "Tu legado de Nintendo: Gestión de colección, precios de mercado y fotos en la nube.",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#111827",
+  "background_color": "#000000",
   "theme_color": "#dc2626",
   "orientation": "portrait",
+  "categories": ["books", "entertainment", "utilities"],
   "icons": [
     {
-      "src": "logo.png",
+      "src": "https://lh3.googleusercontent.com/d/1RFXYtZ9Pls3jJg4pGo80svjKfTayESwl",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "logo.png",
+      "src": "https://lh3.googleusercontent.com/d/1RFXYtZ9Pls3jJg4pGo80svjKfTayESwl",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "https://lh3.googleusercontent.com/d/1RFXYtZ9Pls3jJg4pGo80svjKfTayESwl",
       "sizes": "192x192",
       "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://lh3.googleusercontent.com/d/17i4gAua7pIcMwzb9cpDwtndN-RtAWrnE",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Pantalla de Inicio"
     }
   ]
 }
