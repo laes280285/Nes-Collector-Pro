@@ -3,7 +3,7 @@
   "name": "Nintendo Collector Pro",
   "short_name": "Ninty Pro",
   "description": "Tu legado de Nintendo: Gestión de colección, precios de mercado y fotos en la nube.",
-  "start_url": "./index.html",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#dc2626",

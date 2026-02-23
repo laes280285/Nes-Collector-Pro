@@ -6,26 +6,24 @@ import { Auth } from './components/Auth';
 import { AdminDashboard } from './components/AdminDashboard';
 import { Game, ViewMode, GroupBy, AppSettings, UrgentItem, ConsoleId, CONSOLES, User, BlacklistedUser, AccountStatus } from './types';
 import { fetchGameMetadata } from './services/geminiService';
-import { getAllLocalGames, saveGameLocally, deleteLocalGame, clearAllLocalGames } from './services/dbService';
-import { requestDrivePermission, uploadToDrive, checkAutoBackupWeekly } from './services/googleDriveService';
+import { db, auth } from './services/firebase';
+import { collection as fsCollection, doc, getDoc, setDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { saveGameToFirestore, getGamesFromFirestore, deleteGameFromFirestore, saveMultipleGamesToFirestore } from './services/firestoreService';
 import { 
   Plus, Search, Camera, Trash2, AlertTriangle, X, Save, Check, Star, Library, 
   Settings as SettingsIcon, DollarSign, Wallet, PiggyBank, History, Filter, 
   Eye, EyeOff, PlayCircle, EyeClosed, Image as ImageIcon, Mail, MoreVertical, 
   Slash, Lock, UserCheck, ShieldCheck, MailPlus, Info, TrendingUp, LogOut, ChevronRight, 
   FileText, Calendar, User as UserIcon, Tag, Upload, Database, Cloud, RefreshCw, Download,
-  CheckCircle2, FileImage, Shield, Zap, Sparkles, Monitor, Info as InfoIcon, Play, Calculator, FileCheck, Layers
+  CheckCircle2, FileImage, Shield, Zap, Sparkles, Monitor, Info as InfoIcon, Play, Calculator, FileCheck, Layers, Edit2
 } from 'lucide-react';
 
-const USERS_KEY = 'nintendo_users_v1';
-const BLACKLIST_KEY = 'nintendo_blacklist_v1';
 const APP_VERSION = "3.3.0";
 
 const App: React.FC = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
-  const [blacklist, setBlacklist] = useState<BlacklistedUser[]>([]);
   
   const [activeTab, setActiveTab] = useState('home');
   const [activeConsole, setActiveConsole] = useState<ConsoleId | 'all'>('all');
@@ -34,13 +32,10 @@ const App: React.FC = () => {
     viewMode: 'icon',
     columns: 3,
     groupBy: 'none',
+    uiScale: 'med',
     showFinancialsHome: true,
     showFinancialsShelf: true,
-    hideEmptyConsoles: false,
-    autoBackup: false,
-    autoBackupWeekly: false,
-    driveLinked: false,
-    googleClientId: ''
+    hideEmptyConsoles: false
   });
 
   const [isSearching, setIsSearching] = useState(false);
@@ -58,27 +53,59 @@ const App: React.FC = () => {
   const [coverOptions, setCoverOptions] = useState<string[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedGameIds, setSelectedGameIds] = useState<string[]>([]);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [activePhotoSlot, setActivePhotoSlot] = useState<'front' | 'back' | null>(null);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
 
   useEffect(() => {
-    const savedUsers = localStorage.getItem(USERS_KEY);
-    if (savedUsers) setUsers(JSON.parse(savedUsers));
-    const savedBlacklist = localStorage.getItem(BLACKLIST_KEY);
-    if (savedBlacklist) setBlacklist(JSON.parse(savedBlacklist));
-    
-    const timer = setTimeout(() => setShowSplash(false), 2000);
-    return () => clearTimeout(timer);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        // Fetch user profile from Firestore
+        const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data() as User;
+          setCurrentUser(userData);
+        } else {
+          // If profile doesn't exist, sign out
+          await signOut(auth);
+          setCurrentUser(null);
+        }
+      } else {
+        setCurrentUser(null);
+      }
+      setShowSplash(false);
+    });
+
+    return () => unsubscribeAuth();
   }, []);
 
   useEffect(() => {
     if (currentUser) {
-      getAllLocalGames().then(setCollection);
+      // Subscribe to user's games collection in Firestore
+      const q = query(
+        fsCollection(db, 'users', currentUser.id, 'games'),
+        orderBy('dateAdded', 'desc')
+      );
+      
+      const unsubscribeGames = onSnapshot(q, (snapshot) => {
+        const games = snapshot.docs.map(doc => doc.data() as Game);
+        setCollection(games);
+      });
+
       const savedSettings = localStorage.getItem(`set_${currentUser.id}`);
       if (savedSettings) setSettings(JSON.parse(savedSettings));
+
+      return () => unsubscribeGames();
+    } else {
+      setCollection([]);
     }
   }, [currentUser]);
 
@@ -86,8 +113,7 @@ const App: React.FC = () => {
     if (currentUser) {
       localStorage.setItem(`set_${currentUser.id}`, JSON.stringify(settings));
     }
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  }, [settings, currentUser, users]);
+  }, [settings, currentUser]);
 
   const filteredCollection = useMemo(() => {
     return activeConsole === 'all' ? collection : collection.filter(g => g.consoleId === activeConsole);
@@ -102,14 +128,17 @@ const App: React.FC = () => {
   const handleFetchMetadata = async () => {
     if (!searchName.trim() || !newGameForm.consoleId) return;
     setIsSearching(true);
+    setSearchResults([]);
     setCoverOptions([]);
     try {
       const consoleData = CONSOLES.find(c => c.id === newGameForm.consoleId);
-      const data = await fetchGameMetadata(searchName, consoleData?.name || 'Nintendo');
-      if (data) {
+      const results = await fetchGameMetadata(searchName, consoleData?.name || 'Nintendo');
+      setSearchResults(results);
+      if (results && results.length > 0) {
+        const data = results[0];
         setNewGameForm(prev => ({
           ...prev,
-          name: data.name || searchName,
+          name: data.name,
           developer: data.developer,
           year: data.year,
           genre: data.genre,
@@ -119,6 +148,19 @@ const App: React.FC = () => {
         setCoverOptions(data.coverOptions || []);
       }
     } catch (err) { console.error(err); } finally { setIsSearching(false); }
+  };
+
+  const handleSelectSearchResult = (data: any) => {
+    setNewGameForm(prev => ({
+      ...prev,
+      name: data.name,
+      developer: data.developer,
+      year: data.year,
+      genre: data.genre,
+      marketPrice: data.estimatedPrice || 0,
+      coverUrl: data.coverOptions?.[0] || ''
+    }));
+    setCoverOptions(data.coverOptions || []);
   };
 
   const handleSaveGame = async () => {
@@ -140,8 +182,9 @@ const App: React.FC = () => {
       cartridgeBackPhoto: newGameForm.cartridgeBackPhoto || ''
     };
 
-    await saveGameLocally(game);
-    setCollection(prev => [game, ...prev]);
+    if (currentUser) {
+      await saveGameToFirestore(currentUser.id, game);
+    }
     setIsRegisterOpen(false);
     setActiveTab('collection');
   };
@@ -161,44 +204,85 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleLinkDrive = async () => {
-    if (!settings.googleClientId) {
-      alert("Configura tu Google Client ID en Opciones.");
-      return;
-    }
-    setIsSyncing(true);
-    try {
-      const result = await requestDrivePermission(settings.googleClientId);
-      if (result) {
-        setGoogleToken(result.token);
-        setSettings({...settings, driveLinked: true, googleUserEmail: result.email});
-        alert(`Cuenta ${result.email} vinculada exitosamente.`);
-      }
-    } catch (e) {
-      alert("Error al vincular. Verifica tu Client ID.");
-    } finally { setIsSyncing(false); }
-  };
-
-  const triggerDriveBackup = async () => {
-    if (!settings.driveLinked) return;
-    setIsSyncing(true);
-    const success = await uploadToDrive({
-      games: collection,
-      settings: settings,
-      timestamp: Date.now()
-    }, googleToken || undefined);
-    if (success) {
-      setSettings(prev => ({...prev, lastBackup: Date.now()}));
-      alert("Respaldo subido a Drive.");
-    } else {
-      alert("Fallo en la carga.");
-    }
-    setIsSyncing(false);
-  };
-
   const handlePlayNow = (gameName: string, consoleName: string) => {
-    const query = encodeURIComponent(`${gameName} ${consoleName}`);
-    window.open(`https://www.gam.onl/?s=${query}`, '_blank');
+    // Usamos una búsqueda más directa que incluya el nombre del juego y la consola
+    const query = encodeURIComponent(`${gameName} ${consoleName} rom download`);
+    // Redirigimos a una búsqueda de Google que priorice sitios de descarga directa para ir al grano
+    window.open(`https://www.google.com/search?q=${query}+site:vimm.net+OR+site:wowroms.com+OR+site:romsgames.net`, '_blank');
+  };
+
+  const toggleGameSelection = (id: string) => {
+    setSelectedGameIds(prev => 
+      prev.includes(id) ? prev.filter(gid => gid !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDelete = async () => {
+    if (!currentUser) return;
+    try {
+      for (const id of selectedGameIds) {
+        await deleteGameFromFirestore(currentUser.id, id);
+      }
+      setSelectedGameIds([]);
+      setIsEditMode(false);
+      setConfirmBulkDelete(false);
+      setNotification({ message: "Títulos eliminados correctamente", type: 'success' });
+    } catch (error) {
+      setNotification({ message: "Error al eliminar títulos", type: 'error' });
+    }
+  };
+
+  const handleExportLibrary = () => {
+    try {
+      const dataStr = JSON.stringify(collection, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+      
+      const exportFileDefaultName = `nintendo_legacy_backup_${new Date().toISOString().split('T')[0]}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+      
+      setNotification({ message: "Biblioteca exportada correctamente", type: 'success' });
+    } catch (error) {
+      setNotification({ message: "Error al exportar la biblioteca", type: 'error' });
+    }
+  };
+
+  const handleImportLibrary = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        const importedGames = JSON.parse(content);
+
+        if (!Array.isArray(importedGames)) {
+          throw new Error("Formato de archivo inválido");
+        }
+
+        // Basic validation
+        const isValid = importedGames.every(g => g.id && g.name && g.consoleId);
+        if (!isValid) {
+          throw new Error("El archivo no contiene datos de juegos válidos");
+        }
+
+        if (confirm(`Se importarán ${importedGames.length} juegos. Los juegos con el mismo ID serán actualizados. ¿Continuar?`)) {
+          if (currentUser) {
+            await saveMultipleGamesToFirestore(currentUser.id, importedGames);
+            setNotification({ message: `¡${importedGames.length} juegos importados con éxito!`, type: 'success' });
+          }
+        }
+      } catch (error) {
+        setNotification({ message: "Error al importar: Archivo corrupto o inválido", type: 'error' });
+      } finally {
+        if (importInputRef.current) importInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
   };
 
   if (showSplash) {
@@ -212,7 +296,7 @@ const App: React.FC = () => {
     );
   }
 
-  if (!currentUser) return <Auth onLogin={setCurrentUser} users={users} setUsers={setUsers} />;
+  if (!currentUser) return <Auth onLogin={setCurrentUser} />;
 
   return (
     <Layout 
@@ -226,12 +310,37 @@ const App: React.FC = () => {
       }}
       hideEmpty={settings.hideEmptyConsoles} collection={collection} currentUser={currentUser}
     >
+      {notification && (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000] px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 animate-slideUp ${notification.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+          {notification.type === 'success' ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+          <span className="text-[10px] font-black uppercase tracking-widest">{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="ml-2 opacity-50 hover:opacity-100"><X size={14} /></button>
+        </div>
+      )}
+
       <input 
         type="file" 
         accept="image/*" 
         ref={photoInputRef} 
         className="hidden" 
         onChange={handlePhotoUpload} 
+      />
+
+      <input 
+        type="file" 
+        accept="image/*" 
+        capture="environment"
+        ref={cameraInputRef} 
+        className="hidden" 
+        onChange={handlePhotoUpload} 
+      />
+
+      <input 
+        type="file" 
+        accept=".json" 
+        ref={importInputRef} 
+        className="hidden" 
+        onChange={handleImportLibrary} 
       />
 
       {activeTab === 'home' && (
@@ -299,7 +408,25 @@ const App: React.FC = () => {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-5">
               {filteredCollection.map(game => (
-                <GameCard key={game.id} game={game} viewMode={settings.viewMode} currentUser={currentUser} onDelete={id => setConfirmDelete(id)} onEdit={() => {}} onSelect={setSelectedGame} consoleColor={CONSOLES.find(c => c.id === game.consoleId)?.color} />
+                <GameCard 
+                  key={game.id} 
+                  game={game} 
+                  viewMode={settings.viewMode} 
+                  currentUser={currentUser} 
+                  onDelete={async (id) => {
+                    if (currentUser) {
+                      await deleteGameFromFirestore(currentUser.id, id);
+                      setConfirmDelete(null);
+                      setNotification({ message: "Título eliminado", type: 'success' });
+                    }
+                  }} 
+                  onEdit={() => {}} 
+                  onSelect={setSelectedGame} 
+                  consoleColor={CONSOLES.find(c => c.id === game.consoleId)?.color}
+                  isEditMode={isEditMode}
+                  isSelected={selectedGameIds.includes(game.id)}
+                  onToggleSelect={toggleGameSelection}
+                />
               ))}
             </div>
           )}
@@ -307,60 +434,84 @@ const App: React.FC = () => {
       )}
 
       {activeTab === 'admin' && currentUser?.role === 'admin' && (
-        <AdminDashboard 
-          users={users} setUsers={setUsers} 
-          blacklist={blacklist} setBlacklist={setBlacklist}
-          collection={collection} onBackupNow={triggerDriveBackup}
-          isSyncing={isSyncing} driveLinked={settings.driveLinked}
-        />
+        <AdminDashboard />
       )}
 
       {activeTab === 'settings' && (
         <div className="space-y-8 animate-fadeIn pb-24">
           <div className="bg-white rounded-[45px] p-10 shadow-sm border border-gray-100 relative">
-            <h2 className="text-2xl font-black pro-font mb-8 flex items-center gap-4 text-gray-900"><Cloud className="text-blue-500" /> NUBE PERSONAL</h2>
+            <h2 className="text-2xl font-black pro-font mb-8 flex items-center gap-4 text-gray-900"><Cloud className="text-blue-500" /> SINCRONIZACIÓN EN LA NUBE</h2>
             
-            <div className="space-y-8">
-              <div className="space-y-3">
-                <label className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em] block">ID DE CLIENTE GOOGLE CLOUD</label>
-                <input 
-                  type="password" 
-                  value={settings.googleClientId} 
-                  onChange={e => setSettings({...settings, googleClientId: e.target.value})}
-                  placeholder="ID de cliente de OAuth 2.0..."
-                  className="w-full p-5 bg-gray-50 border border-gray-100 rounded-[24px] text-xs font-mono outline-none focus:ring-4 ring-blue-50 transition-all"
-                />
-                <a href="https://console.cloud.google.com/" target="_blank" className="text-[10px] text-blue-500 font-black uppercase underline tracking-wider inline-block mt-1">Configurar en Consola de Google</a>
-              </div>
-
-              {settings.driveLinked ? (
-                <div className="space-y-4">
-                  <div className="p-6 bg-blue-50/50 border border-blue-100 rounded-[35px] flex justify-between items-center group">
-                    <div className="flex items-center gap-4">
-                       <div className="bg-blue-500 text-white p-3 rounded-2xl shadow-lg"><CheckCircle2 size={24} /></div>
-                       <div className="flex flex-col">
-                         <span className="text-[11px] font-black text-blue-900 uppercase tracking-widest leading-none mb-1">Cuenta Vinculada</span>
-                         <span className="text-[10px] text-blue-400 font-bold lowercase">{settings.googleUserEmail}</span>
-                       </div>
-                    </div>
-                    <button onClick={() => setSettings({...settings, driveLinked: false})} className="text-[10px] font-black text-red-500 uppercase p-2 hover:bg-red-50 rounded-xl transition-colors">BORRAR</button>
-                  </div>
-                  <button onClick={triggerDriveBackup} disabled={isSyncing} className="w-full py-6 bg-gray-950 text-white rounded-[32px] font-black uppercase text-sm flex items-center justify-center gap-4 shadow-2xl active:scale-95 transition-all">
-                    {isSyncing ? <RefreshCw size={24} className="animate-spin" /> : <Upload size={24} />}
-                    {isSyncing ? 'Subiendo Colección...' : 'Sincronizar Estante con Drive'}
-                  </button>
+            <div className="space-y-6">
+              <div className="p-6 bg-blue-50/50 border border-blue-100 rounded-[35px] flex justify-between items-center group">
+                <div className="flex items-center gap-4">
+                   <div className="bg-blue-500 text-white p-3 rounded-2xl shadow-lg"><CheckCircle2 size={24} /></div>
+                   <div className="flex flex-col">
+                     <span className="text-[11px] font-black text-blue-900 uppercase tracking-widest leading-none mb-1">Estado: Conectado</span>
+                     <span className="text-[10px] text-blue-400 font-bold lowercase">{currentUser.email}</span>
+                   </div>
                 </div>
-              ) : (
-                <button onClick={handleLinkDrive} className="w-full py-8 border-3 border-dashed border-gray-200 rounded-[40px] flex flex-col items-center justify-center gap-4 group hover:bg-gray-50 transition-all border-spacing-4">
-                  <div className="w-16 h-16 bg-gray-50 rounded-3xl flex items-center justify-center text-gray-300 group-hover:text-blue-500 transition-all duration-300 group-hover:scale-110">
-                    <Monitor size={32} />
-                  </div>
-                  <span className="font-black uppercase text-[11px] text-gray-400 tracking-[0.2em]">Enlazar Almacenamiento Remoto</span>
-                </button>
-              )}
+                <div className="bg-white/50 px-3 py-1 rounded-lg text-[8px] font-black text-blue-600 uppercase">Auto-Sync</div>
+              </div>
+              
+              <div className="p-6 bg-gray-50 rounded-[35px] border border-gray-100">
+                <p className="text-[10px] font-bold text-gray-400 uppercase leading-relaxed text-center">
+                  Tus juegos se guardan automáticamente en tu cuenta de Firebase. 
+                  <br/>Tus datos están seguros y disponibles en cualquier dispositivo.
+                </p>
+              </div>
             </div>
           </div>
           
+          <div className="bg-white rounded-[45px] p-10 shadow-sm border border-gray-100 relative">
+            <h2 className="text-2xl font-black pro-font mb-8 flex items-center gap-4 text-gray-900"><Zap className="text-yellow-500" /> ESCALA DE INTERFAZ</h2>
+            <div className="flex bg-gray-100 p-1.5 rounded-[24px]">
+              {(['min', 'med', 'max'] as const).map((scale) => (
+                <button
+                  key={scale}
+                  onClick={() => setSettings({ ...settings, uiScale: scale })}
+                  className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all ${settings.uiScale === scale ? 'bg-white shadow-md text-gray-900' : 'text-gray-400'}`}
+                >
+                  {scale === 'min' ? 'Compacto' : scale === 'med' ? 'Estándar' : 'Accesible'}
+                </button>
+              ))}
+            </div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-4 text-center">
+              {settings.uiScale === 'min' ? 'Ideal para ver más elementos en pantalla.' : settings.uiScale === 'med' ? 'Tamaño equilibrado para uso diario.' : 'Tipografía y botones aumentados para mejor lectura.'}
+            </p>
+          </div>
+
+          <div className="bg-white rounded-[45px] p-10 shadow-sm border border-gray-100 relative">
+            <h2 className="text-2xl font-black pro-font mb-8 flex items-center gap-4 text-gray-900"><Database className="text-emerald-500" /> RESPALDO LOCAL</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button 
+                onClick={handleExportLibrary}
+                className="flex flex-col items-center justify-center gap-3 p-8 bg-gray-50 rounded-[35px] border border-gray-100 hover:bg-emerald-50 hover:border-emerald-100 transition-all group"
+              >
+                <div className="w-14 h-14 bg-white rounded-2xl shadow-sm flex items-center justify-center text-gray-400 group-hover:text-emerald-500 transition-colors">
+                  <Download size={24} />
+                </div>
+                <div className="text-center">
+                  <p className="text-[11px] font-black text-gray-900 uppercase tracking-widest">Exportar JSON</p>
+                  <p className="text-[8px] font-bold text-gray-400 uppercase">Descargar copia local</p>
+                </div>
+              </button>
+              
+              <button 
+                onClick={() => importInputRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-3 p-8 bg-gray-50 rounded-[35px] border border-gray-100 hover:bg-blue-50 hover:border-blue-100 transition-all group"
+              >
+                <div className="w-14 h-14 bg-white rounded-2xl shadow-sm flex items-center justify-center text-gray-400 group-hover:text-blue-500 transition-colors">
+                  <FileCheck size={24} />
+                </div>
+                <div className="text-center">
+                  <p className="text-[11px] font-black text-gray-900 uppercase tracking-widest">Importar JSON</p>
+                  <p className="text-[8px] font-bold text-gray-400 uppercase">Restaurar desde archivo</p>
+                </div>
+              </button>
+            </div>
+          </div>
+
           <div className="bg-red-50 rounded-[45px] p-10 border border-red-100 space-y-6">
              <div className="flex items-center gap-5">
                 <div className="w-16 h-16 bg-white rounded-3xl shadow-sm flex items-center justify-center font-black text-2xl text-red-600 pro-font border border-red-100">{currentUser.name.charAt(0)}</div>
@@ -369,7 +520,10 @@ const App: React.FC = () => {
                    <h4 className="pro-font text-3xl text-red-600 tracking-wider leading-none uppercase">{currentUser.name}</h4>
                 </div>
              </div>
-             <button onClick={() => setCurrentUser(null)} className="w-full py-6 bg-red-600 text-white rounded-[32px] font-black uppercase pro-font text-2xl shadow-xl hover:bg-red-700 active:scale-95 transition-all">CERRAR EL ESTANTE</button>
+             <button onClick={async () => {
+                await signOut(auth);
+                setCurrentUser(null);
+              }} className="w-full py-6 bg-red-600 text-white rounded-[32px] font-black uppercase pro-font text-2xl shadow-xl hover:bg-red-700 active:scale-95 transition-all">CERRAR EL ESTANTE</button>
           </div>
         </div>
       )}
@@ -481,6 +635,36 @@ const App: React.FC = () => {
                 </div>
               </div>
 
+              {searchResults.length > 0 && !isSearching && (
+                <div className="space-y-3 animate-fadeIn">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">COINCIDENCIAS ENCONTRADAS (IA)</label>
+                  <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                    {searchResults.slice(0, 3).map((res, idx) => (
+                      <button 
+                        key={idx} 
+                        onClick={() => handleSelectSearchResult(res)}
+                        className={`flex-shrink-0 w-[140px] rounded-3xl border-2 transition-all text-left overflow-hidden flex flex-col ${newGameForm.name === res.name ? 'bg-gray-950 border-gray-950 text-white shadow-xl scale-105' : 'bg-gray-50 border-gray-100 text-gray-400 hover:border-gray-200'}`}
+                      >
+                        <div className="aspect-[3/4] w-full bg-gray-200 relative">
+                          {res.coverOptions?.[0] ? (
+                            <img src={res.coverOptions[0]} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center"><ImageIcon size={24} className="opacity-20" /></div>
+                          )}
+                          <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded text-[8px] font-black text-white">
+                            #{idx + 1}
+                          </div>
+                        </div>
+                        <div className="p-3">
+                          <p className="text-[10px] font-black uppercase truncate leading-tight mb-1">{res.name}</p>
+                          <p className="text-[8px] font-bold opacity-60 uppercase">{res.year} • {res.developer}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {newGameForm.name && !isSearching && (
                 <div className="animate-fadeIn space-y-8">
                   {/* FICHA TÉCNICA Y OPCIONES DE FOTO */}
@@ -511,6 +695,26 @@ const App: React.FC = () => {
                         </div>
                      </div>
 
+                     {/* OPCIONES DE PORTADA */}
+                     {coverOptions.length > 1 && (
+                       <div className="space-y-3">
+                          <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                            <ImageIcon size={14} /> OTRAS PORTADAS DISPONIBLES
+                          </p>
+                          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                            {coverOptions.map((url, idx) => (
+                              <button 
+                                key={idx} 
+                                onClick={() => setNewGameForm({...newGameForm, coverUrl: url})}
+                                className={`flex-shrink-0 w-16 aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${newGameForm.coverUrl === url ? 'border-red-500 scale-105 shadow-lg' : 'border-white/10 opacity-40'}`}
+                              >
+                                <img src={url} className="w-full h-full object-cover" />
+                              </button>
+                            ))}
+                          </div>
+                       </div>
+                     )}
+
                      {/* CARGA DE FOTOS CARTUCHO */}
                      <div className="space-y-3">
                         <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
@@ -518,8 +722,8 @@ const App: React.FC = () => {
                         </p>
                         <div className="grid grid-cols-2 gap-3">
                            <div 
-                              onClick={() => { setActivePhotoSlot('front'); photoInputRef.current?.click(); }}
-                              className={`aspect-video rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-all overflow-hidden ${newGameForm.cartridgeFrontPhoto ? 'border-green-500/50 bg-green-500/5' : 'border-white/10 hover:border-white/20 bg-white/5'}`}
+                              onClick={() => { setActivePhotoSlot('front'); setShowPhotoModal(true); }}
+                              className={`aspect-video rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-all overflow-hidden relative ${newGameForm.cartridgeFrontPhoto ? 'border-green-500/50 bg-green-500/5' : 'border-white/10 hover:border-white/20 bg-white/5'}`}
                            >
                               {newGameForm.cartridgeFrontPhoto ? (
                                 <img src={newGameForm.cartridgeFrontPhoto} className="w-full h-full object-cover" />
@@ -531,8 +735,8 @@ const App: React.FC = () => {
                               )}
                            </div>
                            <div 
-                              onClick={() => { setActivePhotoSlot('back'); photoInputRef.current?.click(); }}
-                              className={`aspect-video rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-all overflow-hidden ${newGameForm.cartridgeBackPhoto ? 'border-green-500/50 bg-green-500/5' : 'border-white/10 hover:border-white/20 bg-white/5'}`}
+                              onClick={() => { setActivePhotoSlot('back'); setShowPhotoModal(true); }}
+                              className={`aspect-video rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-all overflow-hidden relative ${newGameForm.cartridgeBackPhoto ? 'border-green-500/50 bg-green-500/5' : 'border-white/10 hover:border-white/20 bg-white/5'}`}
                            >
                               {newGameForm.cartridgeBackPhoto ? (
                                 <img src={newGameForm.cartridgeBackPhoto} className="w-full h-full object-cover" />
@@ -591,11 +795,101 @@ const App: React.FC = () => {
                   <p className="text-[11px] font-bold text-gray-400 uppercase leading-relaxed px-4">Esta acción es irreversible y eliminará los datos de la base local.</p>
                </div>
                <div className="flex flex-col gap-3">
-                  <button onClick={async () => { await deleteLocalGame(confirmDelete); setCollection(collection.filter(g => g.id !== confirmDelete)); setConfirmDelete(null); }} className="w-full py-5 bg-red-600 text-white rounded-3xl font-black uppercase pro-font text-xl shadow-xl">BORRAR PARA SIEMPRE</button>
+                  <button onClick={async () => { 
+                    if (currentUser) {
+                      await deleteGameFromFirestore(currentUser.id, confirmDelete); 
+                      setConfirmDelete(null); 
+                      setNotification({ message: "Título eliminado", type: 'success' });
+                    }
+                  }} className="w-full py-5 bg-red-600 text-white rounded-3xl font-black uppercase pro-font text-xl shadow-xl">BORRAR PARA SIEMPRE</button>
                   <button onClick={() => setConfirmDelete(null)} className="w-full py-5 bg-gray-100 text-gray-400 rounded-3xl font-black uppercase pro-font text-lg">CANCELAR</button>
                </div>
             </div>
          </div>
+      )}
+
+      {/* CONFIRM BULK DELETE MODAL */}
+      {confirmBulkDelete && (
+         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[400] flex items-center justify-center p-6 animate-fadeIn">
+            <div className="bg-white p-10 rounded-[45px] w-full max-w-sm text-center space-y-8">
+               <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto shadow-inner"><Trash2 size={40} /></div>
+               <div className="space-y-3">
+                  <h3 className="text-3xl font-black pro-font uppercase tracking-tight">¿BORRAR {selectedGameIds.length} TÍTULOS?</h3>
+                  <div className="text-[10px] font-bold text-gray-400 uppercase leading-relaxed px-4 space-y-2">
+                    <p>Se eliminarán permanentemente de las siguientes plataformas:</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {Array.from(new Set(collection.filter(g => selectedGameIds.includes(g.id)).map(g => g.consoleId))).map(cid => (
+                        <span key={cid} className="px-2 py-1 bg-gray-100 rounded-lg text-gray-600">{CONSOLES.find(c => c.id === cid)?.name}</span>
+                      ))}
+                    </div>
+                  </div>
+               </div>
+               <div className="flex flex-col gap-3">
+                  <button onClick={handleBulkDelete} className="w-full py-5 bg-red-600 text-white rounded-3xl font-black uppercase pro-font text-xl shadow-xl">ELIMINAR SELECCIÓN</button>
+                  <button onClick={() => setConfirmBulkDelete(false)} className="w-full py-5 bg-gray-100 text-gray-400 rounded-3xl font-black uppercase pro-font text-lg">CANCELAR</button>
+               </div>
+            </div>
+         </div>
+      )}
+
+      {/* MODAL FUENTE DE FOTO */}
+      {showPhotoModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[600] flex items-center justify-center p-6 animate-fadeIn">
+          <div className="bg-white p-10 rounded-[45px] w-full max-w-sm text-center space-y-8 shadow-2xl border border-gray-100">
+            <div className="w-20 h-20 bg-gray-50 text-gray-900 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
+              <Camera size={40} />
+            </div>
+            <div className="space-y-3">
+              <h3 className="text-3xl font-black pro-font uppercase tracking-tight text-gray-950">Origen de Imagen</h3>
+              <p className="text-[11px] font-bold text-gray-400 uppercase leading-relaxed px-4">
+                Selecciona cómo deseas agregar la foto del cartucho.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <button 
+                onClick={() => { cameraInputRef.current?.click(); setShowPhotoModal(false); }}
+                className="w-full py-6 bg-gray-950 text-white rounded-[32px] font-black uppercase pro-font text-xl flex items-center justify-center gap-4 shadow-xl active:scale-95 transition-all"
+              >
+                <Camera size={24} /> Usar Cámara
+              </button>
+              <button 
+                onClick={() => { photoInputRef.current?.click(); setShowPhotoModal(false); }}
+                className="w-full py-6 bg-gray-100 text-gray-900 rounded-[32px] font-black uppercase pro-font text-xl flex items-center justify-center gap-4 active:scale-95 transition-all"
+              >
+                <ImageIcon size={24} /> Almacenamiento
+              </button>
+              <button 
+                onClick={() => setShowPhotoModal(false)}
+                className="w-full py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest hover:text-gray-900 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING ACTION BUTTONS */}
+      {activeTab === 'shelf' && (
+        <div className="fixed bottom-24 right-6 flex flex-col gap-4 z-[200]">
+          {isEditMode && selectedGameIds.length > 0 && (
+            <button 
+              onClick={() => setConfirmBulkDelete(true)}
+              className="w-14 h-14 bg-red-600 text-white rounded-full shadow-2xl flex items-center justify-center animate-bounce active:scale-90 transition-all"
+            >
+              <Trash2 size={24} />
+            </button>
+          )}
+          <button 
+            onClick={() => {
+              setIsEditMode(!isEditMode);
+              if (isEditMode) setSelectedGameIds([]);
+            }}
+            className={`w-16 h-16 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all ${isEditMode ? 'bg-gray-950 text-white' : 'bg-white text-gray-950 border border-gray-100'}`}
+          >
+            {isEditMode ? <X size={28} /> : <Edit2 size={28} />}
+          </button>
+        </div>
       )}
     </Layout>
   );

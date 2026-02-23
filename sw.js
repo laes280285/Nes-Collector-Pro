@@ -1,9 +1,9 @@
 
-const CACHE_NAME = 'ninty-pro-v2.6.5';
+const CACHE_NAME = 'ninty-pro-v3.3.2';
 const ASSETS = [
-  './',
-  './index.html',
-  './manifest.json',
+  '/',
+  '/index.html',
+  '/manifest.json',
   'https://cdn.tailwindcss.com',
   'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Saira:wght@400;500;600;700;800;900&display=swap'
 ];

@@ -10,47 +10,60 @@ export async function fetchGameMetadata(gameName: string, consoleName: string) {
     
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Eres una enciclopedia de Nintendo. Encuentra datos precisos del juego "${gameName}" para la consola "${consoleName}". 
-      Busca portadas oficiales (Box Art) de alta resolución.
+      contents: `Busca información y portadas oficiales del juego "${gameName}" para la consola "${consoleName}". 
       
-      REGLAS:
-      1. El precio debe ser una estimación realista en USD para un cartucho suelto/usado.
-      2. Portadas: URLs directas de imágenes (.jpg/.png) de sitios como Wikipedia, MobyGames o IGDB.
-      3. Sé rápido y preciso.
-      4. Asegúrate de incluir el género predominante (ej: Acción, RPG, Plataformas).`,
+      IMPORTANTE: Las URLs de las portadas DEBEN ser enlaces directos a imágenes (que terminen en .jpg, .png, .webp). NO enlaces a páginas web.
+      Busca en sitios como MobyGames, IGDB, Wikipedia o The Cover Project.
+      
+      Necesito exactamente 3 posibles coincidencias (o menos si no hay más).
+      Para cada coincidencia incluye: nombre exacto, desarrollador, año, género, precio estimado (usado) y una lista de hasta 5 URLs de portadas directas.
+      
+      Responde ÚNICAMENTE con un objeto JSON válido con este formato:
+      {
+        "results": [
+          {
+            "name": "string",
+            "developer": "string",
+            "year": "string",
+            "genre": "string",
+            "estimatedPrice": number,
+            "coverOptions": ["url1", "url2", ...]
+          }
+        ]
+      }`,
       config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            developer: { type: Type.STRING },
-            year: { type: Type.STRING },
-            genre: { type: Type.STRING },
-            estimatedPrice: { type: Type.NUMBER },
-            coverOptions: { 
-              type: Type.ARRAY, 
-              items: { type: Type.STRING }
-            }
-          },
-          required: ["name", "developer", "year", "genre", "estimatedPrice", "coverOptions"]
-        }
+        tools: [{ googleSearch: {} }]
       }
     });
 
-    // response.text is a property, not a method.
-    const data = JSON.parse(response.text || "{}");
-    
-    // Limpieza de URLs
-    if (data.coverOptions) {
-      data.coverOptions = data.coverOptions.filter((u: string) => 
-        u.startsWith('http') && (u.includes('jpg') || u.includes('png') || u.includes('webp'))
-      ).slice(0, 4);
+    let text = response.text || "";
+    if (text.includes("```json")) {
+      text = text.split("```json")[1].split("```")[0];
+    } else if (text.includes("```")) {
+      text = text.split("```")[1].split("```")[0];
     }
     
-    return data;
+    const data = JSON.parse(text.trim() || "{\"results\": []}");
+    
+    if (data.results) {
+      data.results.forEach((item: any) => {
+        if (item.coverOptions) {
+          item.coverOptions = item.coverOptions.filter((u: string) => 
+            typeof u === 'string' && 
+            u.startsWith('http') && 
+            (u.toLowerCase().endsWith('.jpg') || 
+             u.toLowerCase().endsWith('.png') || 
+             u.toLowerCase().endsWith('.webp') || 
+             u.toLowerCase().includes('images') ||
+             u.toLowerCase().includes('covers'))
+          ).slice(0, 5);
+        }
+      });
+    }
+    
+    return data.results || [];
   } catch (error) {
-    console.error("Error en búsqueda IA:", error);
-    return null;
+    console.error("Error en búsqueda IA con grounding:", error);
+    return [];
   }
 }

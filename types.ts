@@ -38,20 +38,16 @@ export interface Game {
 
 export type ViewMode = 'icon' | 'list';
 export type GroupBy = 'none' | 'genre' | 'year' | 'developer';
+export type UIScale = 'min' | 'med' | 'max';
 
 export interface AppSettings {
   viewMode: ViewMode;
   columns: number;
   groupBy: GroupBy;
+  uiScale: UIScale;
   showFinancialsHome: boolean;
   showFinancialsShelf: boolean;
   hideEmptyConsoles: boolean;
-  autoBackup: boolean;
-  autoBackupWeekly: boolean;
-  lastBackup?: number;
-  driveLinked: boolean;
-  googleUserEmail?: string;
-  googleClientId?: string;
 }
 
 export interface UrgentItem {

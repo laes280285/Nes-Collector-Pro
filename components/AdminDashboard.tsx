@@ -1,6 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, BlacklistedUser, UserRole, AccountStatus } from '../types';
+import { db } from '../services/firebase';
+import { collection as fsCollection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
 import { 
   Users, ShieldCheck, TrendingUp, Mail, ShieldAlert, 
   Trash2, UserCheck, Lock, Unlock, MoreVertical, Search, Slash,
@@ -8,39 +10,71 @@ import {
 } from 'lucide-react';
 
 interface AdminDashboardProps {
-  users: User[];
-  setUsers: (users: User[]) => void;
-  blacklist: BlacklistedUser[];
-  setBlacklist: (blacklist: BlacklistedUser[]) => void;
-  collection: any[];
-  onBackupNow?: () => void;
-  isSyncing?: boolean;
-  driveLinked?: boolean;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
-  users, setUsers, blacklist, setBlacklist, onBackupNow, isSyncing, driveLinked
-}) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
+  const [users, setUsers] = useState<User[]>([]);
+  const [blacklist, setBlacklist] = useState<BlacklistedUser[]>([]);
   const [adminTab, setAdminTab] = useState<'requests' | 'users' | 'blacklist' | 'system'>('requests');
+  const [userFilter, setUserFilter] = useState<'all' | 'standard' | 'vip'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const handleApprove = (user: User) => {
-    setUsers(users.map(u => u.id === user.id ? { ...u, status: 'active', verified: true, role: 'standard' } : u));
-    alert(`¡Solicitud de ${user.name} Aprobada!\n\nSe ha enviado un correo a ${user.email} informándole sobre su activación estándar y los pasos para subir a Modo Pro (VIP).`);
-  };
+  useEffect(() => {
+    // Subscribe to all users
+    const q = query(fsCollection(db, 'users'), orderBy('dateJoined', 'desc'));
+    const unsubscribeUsers = onSnapshot(q, (snapshot) => {
+      const usersList = snapshot.docs.map(doc => doc.data() as User);
+      setUsers(usersList);
+    });
 
-  const handleUpdateRole = (userId: string, newRole: UserRole) => {
-    setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
-    if(newRole === 'vip') {
-        alert("Usuario ascendido a Modo PRO. Ahora tiene acceso a todas las funciones financieras y de respaldo.");
+    // Subscribe to blacklist
+    const qBlacklist = query(fsCollection(db, 'blacklist'), orderBy('deletedAt', 'desc'));
+    const unsubscribeBlacklist = onSnapshot(qBlacklist, (snapshot) => {
+      const blacklistList = snapshot.docs.map(doc => doc.data() as BlacklistedUser);
+      setBlacklist(blacklistList);
+    });
+
+    return () => {
+      unsubscribeUsers();
+      unsubscribeBlacklist();
+    };
+  }, []);
+
+  const handleApprove = async (user: User, role: UserRole) => {
+    try {
+      await updateDoc(doc(db, 'users', user.id), {
+        status: 'active',
+        verified: true,
+        role
+      });
+      alert(`¡Solicitud de ${user.name} Aprobada como ${role.toUpperCase()}!\n\nSe ha enviado un correo formal de bienvenida a ${user.email} informándole sobre su acceso a la aplicación.`);
+    } catch (err) {
+      console.error("Approve error:", err);
     }
   };
 
-  const handleUpdateStatus = (userId: string, newStatus: AccountStatus) => {
-    setUsers(users.map(u => u.id === userId ? { ...u, status: newStatus } : u));
+  const handleDeleteRequest = async (userId: string) => {
+    if (confirm("¿Estás seguro de que deseas eliminar esta solicitud de acceso?")) {
+      try {
+        await deleteDoc(doc(db, 'users', userId));
+      } catch (err) {
+        console.error("Delete request error:", err);
+      }
+    }
   };
 
-  const handleBlacklist = (user: User) => {
+  const handleUpdateRole = async (userId: string, newRole: UserRole) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { role: newRole });
+      if(newRole === 'vip') {
+          alert("Usuario ascendido a Modo PRO. Ahora tiene acceso a todas las funciones financieras y de respaldo.");
+      }
+    } catch (err) {
+      console.error("Update role error:", err);
+    }
+  };
+
+  const handleBlacklist = async (user: User) => {
     const reason = prompt("Motivo del baneo:");
     if (!reason) return;
 
@@ -50,8 +84,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       deletedAt: Date.now()
     };
     
-    setBlacklist([...blacklist, blacklisted]);
-    setUsers(users.filter(u => u.id !== user.id));
+    try {
+      await setDoc(doc(db, 'blacklist', user.id), blacklisted);
+      await deleteDoc(doc(db, 'users', user.id));
+    } catch (err) {
+      console.error("Blacklist error:", err);
+    }
   };
 
   const pendingRequests = users.filter(u => u.status === 'pending');
@@ -88,6 +126,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {adminTab === 'requests' && (
         <div className="space-y-4">
+          <div className="flex items-center justify-between px-2">
+            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Solicitudes Pendientes</h3>
+            <button 
+              onClick={() => {
+                const btn = document.getElementById('refresh-requests-btn');
+                if (btn) btn.classList.add('animate-spin');
+                setTimeout(() => {
+                  if (btn) btn.classList.remove('animate-spin');
+                }, 1000);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-500 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all active:scale-95"
+            >
+              <RefreshCw id="refresh-requests-btn" size={12} /> Refrescar Lista
+            </button>
+          </div>
           {pendingRequests.length === 0 ? (
             <div className="py-20 text-center opacity-20">
               <ShieldCheck size={64} className="mx-auto mb-4" />
@@ -101,15 +154,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    <p className="text-[10px] font-bold text-orange-500 tracking-wider uppercase">{user.email}</p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => handleBlacklist(user)} className="bg-gray-100 text-gray-400 p-4 rounded-3xl hover:bg-red-50 hover:text-red-600 transition-colors">
-                        <XCircle size={20} />
+                    <button onClick={() => handleDeleteRequest(user.id)} className="bg-gray-100 text-gray-400 p-4 rounded-3xl hover:bg-red-50 hover:text-red-600 transition-colors" title="Eliminar solicitud">
+                        <Trash2 size={20} />
                     </button>
-                    <button 
-                    onClick={() => handleApprove(user)}
-                    className="bg-green-600 text-white p-4 rounded-3xl shadow-[0_10px_20px_-5px_rgba(22,163,74,0.4)] hover:scale-105 active:scale-95 transition-all"
-                    >
-                    <CheckCircle size={20} />
+                    <button onClick={() => handleBlacklist(user)} className="bg-gray-100 text-gray-400 p-4 rounded-3xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Banear usuario">
+                        <Slash size={20} />
                     </button>
+                    <div className="flex flex-col gap-1">
+                      <button 
+                        onClick={() => handleApprove(user, 'standard')}
+                        className="bg-gray-900 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase shadow-md hover:scale-105 active:scale-95 transition-all"
+                      >
+                        Aprobar Estándar
+                      </button>
+                      <button 
+                        onClick={() => handleApprove(user, 'vip')}
+                        className="gold-glow text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase shadow-md hover:scale-105 active:scale-95 transition-all flex items-center gap-1"
+                      >
+                        <Star size={10} fill="currentColor" /> Aprobar VIP
+                      </button>
+                    </div>
                 </div>
               </div>
             ))
@@ -119,12 +183,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {adminTab === 'users' && (
         <div className="space-y-5">
+          <div className="flex gap-2 mb-2 overflow-x-auto no-scrollbar pb-1">
+            <button onClick={() => setUserFilter('all')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${userFilter === 'all' ? 'bg-gray-900 text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>Todos</button>
+            <button onClick={() => setUserFilter('standard')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${userFilter === 'standard' ? 'bg-gray-900 text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>Estándar</button>
+            <button onClick={() => setUserFilter('vip')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${userFilter === 'vip' ? 'gold-glow text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}>VIP / PRO</button>
+          </div>
           <div className="relative">
             <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
             <input type="text" placeholder="Buscar coleccionista..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-14 pr-6 py-5 bg-white border border-gray-100 rounded-[28px] outline-none font-bold text-sm shadow-sm" />
           </div>
           <div className="space-y-4">
-            {activeUsers.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase())).map(user => (
+            {activeUsers
+              .filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()))
+              .filter(u => userFilter === 'all' ? true : u.role === userFilter)
+              .map(user => (
               <div key={user.id} className="bg-white p-6 rounded-[40px] shadow-sm border border-gray-100 space-y-6">
                 <div className="flex justify-between items-start">
                   <div className="flex items-center gap-4">
@@ -165,10 +237,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    <p className="text-[10px] text-red-500 font-black uppercase tracking-tighter">Baneado por: {bUser.deletionReason}</p>
                 </div>
                 <button 
-                  onClick={() => {
+                  onClick={async () => {
                       if(confirm("¿Reincorporar a este usuario?")) {
-                          setUsers([...users, { ...bUser, status: 'active' } as User]);
-                          setBlacklist(blacklist.filter(b => b.id !== bUser.id));
+                          try {
+                            await setDoc(doc(db, 'users', bUser.id), { ...bUser, status: 'active' });
+                            await deleteDoc(doc(db, 'blacklist', bUser.id));
+                          } catch (err) {
+                            console.error("Unblacklist error:", err);
+                          }
                       }
                   }}
                   className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-green-50 hover:text-green-600 transition-colors"

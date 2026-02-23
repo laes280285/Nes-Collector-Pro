@@ -1,0 +1,23 @@
+/* Tailwind is loaded via CDN in index.html */
+
+@theme {
+  --font-sans: "Saira", ui-sans-serif, system-ui, sans-serif;
+}
+
+.gothic-font {
+  font-family: 'UnifrakturMaguntia', serif;
+}
+
+.pro-font {
+  font-family: 'Bebas Neue', sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.gold-glow {
+  box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+  background: linear-gradient(45deg, #ffd700, #ffec8b);
+  color: #7a5c00 !important;
+}
