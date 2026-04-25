@@ -1,16 +1,26 @@
-/* Tailwind is loaded via CDN in index.html */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@400;700;900&family=Playfair+Display:wght@700;900&display=swap');
+@import "tailwindcss";
 
 @theme {
-  --font-sans: "Saira", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-serif: "Playfair Display", serif;
 }
 
-.gothic-font {
-  font-family: 'UnifrakturMaguntia', serif;
-}
+/* Font Variations */
+.font-technical { font-family: 'Inter', sans-serif; }
+.font-retro { font-family: 'JetBrains Mono', monospace; }
+.font-elegant { font-family: 'Playfair Display', serif; }
 
 .pro-font {
   font-family: 'Bebas Neue', sans-serif;
   letter-spacing: 0.04em;
+}
+
+.retro-data {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -20,4 +30,8 @@
   box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
   background: linear-gradient(45deg, #ffd700, #ffec8b);
   color: #7a5c00 !important;
+}
+
+.card-hardware {
+  @apply rounded-xl border border-gray-100 shadow-sm transition-all;
 }

@@ -4,26 +4,26 @@
   "short_name": "Ninty Pro",
   "description": "Tu legado de Nintendo: Gestión de colección, precios de mercado y fotos en la nube.",
   "start_url": "/",
-  "display": "standalone",
+  "display": "fullscreen",
   "background_color": "#000000",
   "theme_color": "#dc2626",
   "orientation": "portrait",
   "categories": ["books", "entertainment", "utilities"],
   "icons": [
     {
-      "src": "https://lh3.googleusercontent.com/d/1RFXYtZ9Pls3jJg4pGo80svjKfTayESwl",
+      "src": "https://lh3.googleusercontent.com/d/1UFaiz33dmWOocrSre7pXmewkabxMaCoW",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://lh3.googleusercontent.com/d/1RFXYtZ9Pls3jJg4pGo80svjKfTayESwl",
+      "src": "https://lh3.googleusercontent.com/d/1UFaiz33dmWOocrSre7pXmewkabxMaCoW",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "https://lh3.googleusercontent.com/d/1RFXYtZ9Pls3jJg4pGo80svjKfTayESwl",
+      "src": "https://lh3.googleusercontent.com/d/1UFaiz33dmWOocrSre7pXmewkabxMaCoW",
       "sizes": "192x192",
       "type": "image/png"
     }
